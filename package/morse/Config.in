@@ -1,0 +1,6 @@
+config BR2_PACKAGE_MORSE
+	bool "morse"
+	depends on BR2_PACKAGE_LIBGPIOD
+	help
+	  Morse encoder/decoder communicating with Raspberry Pi 4
+

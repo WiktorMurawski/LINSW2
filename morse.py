@@ -5,7 +5,7 @@ Użycie: python3 morse.py [chipname] [led_line] [button_line]
 Przykład: python3 morse.py gpiochip0 30 20
 
 Ctrl+C  – przełącz między trybem nadawania i odbioru
-Ctrl+\  – zakończ program
+Ctrl+\\  – zakończ program
 """
 
 import sys

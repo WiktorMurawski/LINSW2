@@ -10,7 +10,7 @@
 #include <poll.h>
 
 #define DEBOUNCE          50000
-#define DOT_TIME         150000 // µs, 150ms
+#define DOT_TIME         150000
 #define DASH_TIME        (2 * DOT_TIME)
 #define SYMBOL_SPACE     DOT_TIME
 #define LETTER_SPACE     (3 * DOT_TIME)
@@ -36,22 +36,23 @@ enum AppMode {
   SEND,
   LISTEN,
 };
+
 volatile enum AppMode mode = SEND;
 volatile int running = 1;
 
 void sigint_handler(int sig) {
     if (mode == SEND) {
         mode = LISTEN;
-        printf("\n[→ TRYB ODBIORU]\n");
+        printf("\n[TRYB ODBIORU]");
     } else {
         mode = SEND;
-        printf("\n[→ TRYB NADAWANIA]\n");
+        printf("\n[TRYB NADAWANIA]");
     }
 }
 void sigquit_handler(int sig) { running = 0; }
 
-// ==================== TABLICA MORSE'A ====================
 void print_morse_table(void) {
+    printf("======================================\n");
     for (int i = 0; i < 18; i++) {
         printf(" %c   | %-15s ", morse_chars[i], morse_codes[i]);
         int j = i + 18;
@@ -60,10 +61,9 @@ void print_morse_table(void) {
         }
         printf("\n");
     }
-    printf("======================================\n\n");
+    printf("======================================\n");
 }
 
-// ==================== FUNKCJE MORSE ====================
 void morse_delay(int us) {
     usleep(us);
 }
@@ -85,7 +85,7 @@ void send_morse(struct gpiod_line *led_line, const char *text) {
         char c = toupper(*p);
 
         if (c == ' ') {
-            morse_delay(WORD_SPACE - LETTER_SPACE);
+            morse_delay(WORD_SPACE);
             continue;
         }
 
@@ -100,37 +100,31 @@ void send_morse(struct gpiod_line *led_line, const char *text) {
     }
 }
 
-// ==================== HELP & USAGE ====================
 void print_usage(const char *prog) {
     printf("Użycie: %s [led_chip] [led_line] [button_line]\n", prog);
-    printf("Przykład:  %s gpiochip0 30 20\n", prog);
+    printf("Przykład:  %s gpiochip0 27 18\n", prog);
 }
 
-// ==================== DEKODER MORSE'A Z PRZYCISKU ====================
 void decode_morse_input(unsigned int button_line_num, const char *chipname)
 {
     struct timespec press_time, release_time, start_wait, now;
     struct gpiod_line_event ev;          
     char current_symbol[16] = "";
 
-    printf("\n=== TRYB ODBIORU MORSE'A ===\n");
+    printf("\n=== TRYB ODBIORU MORSE'A (Ctrl+C aby wrócić) ===\n");
     printf("Naciskaj przycisk na linii %u chipu %s\n", button_line_num, chipname);
 
     while (running && mode == LISTEN) {
-        // Czekamy na zdarzenie (wciśnięcie lub puszczenie)
         if (gpiod_line_event_wait(button_line, NULL) <= 0)
             continue;
 
-        // Wczytujemy zdarzenie (MUSI być &ev, nie NULL!)
         if (gpiod_line_event_read(button_line, &ev) < 0)
             continue;
 
-        // Rejestrujemy moment wciśnięcia
         clock_gettime(CLOCK_MONOTONIC, &press_time);
 
-        // Czekamy na puszczenie przycisku (aktywny niski = wartość 0)
         while (gpiod_line_get_value(button_line) == 0 && running) {
-            usleep(5000);               // debounce + polling
+            usleep(5000);               
         }
         clock_gettime(CLOCK_MONOTONIC, &release_time);
 
@@ -148,7 +142,6 @@ void decode_morse_input(unsigned int button_line_num, const char *chipname)
         }
         fflush(stdout);
 
-        // Czekamy na przerwę między symbolami
         clock_gettime(CLOCK_MONOTONIC, &start_wait);
 
         while (running && mode == LISTEN) {
@@ -183,14 +176,13 @@ void decode_morse_input(unsigned int button_line_num, const char *chipname)
 // ==================== MAIN ====================
 int main(int argc, char **argv) {
     const char *chipname = "gpiochip0";
-    unsigned int led_line_num = 30;
-    unsigned int button_line_num = 20;
+    unsigned int led_line_num = 27;
+    unsigned int button_line_num = 18;
 
     if (argc >= 2) {
         if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) {
-            printf("Użycie: %s [chipname] [led_line] [button_line]\n", argv[0]);
-            printf("Przykład: %s gpiochip0 30 20\n", argv[0]);
-            return 0;
+            print_usage(argv[0]);
+	    return 0;
         }
         chipname = argv[1];
     }
@@ -208,7 +200,7 @@ int main(int argc, char **argv) {
 
     led_line = gpiod_chip_get_line(chip, led_line_num);
     if (gpiod_line_request_output(led_line, "morse_led", 0) < 0) {
-        fprintf(stderr, "Nie można skonfigurować LED-a\n");
+        fprintf(stderr, "Nie można skonfigurować linii LED\n");
         goto cleanup;
     }
 
@@ -218,33 +210,21 @@ int main(int argc, char **argv) {
         goto cleanup;
     }
     gpiod_line_request_both_edges_events(button_line, "morse_button");
-
-    // wersja z wewnętrznym pull-up - na razie bez niej  
-    // struct gpiod_line_request_config req = {
-    //     .consumer     = "morse_button",                    
-    //     .request_type = GPIOD_LINE_REQUEST_DIRECTION_INPUT |
-    //                     GPIOD_LINE_REQUEST_EVENT_BOTH_EDGES, // zdarzenia na obu krawędziach
-    //     .flags        = GPIOD_LINE_REQUEST_FLAG_BIAS_PULL_UP  // włącza wewnętrzny pull-up
-    // };
-    // if (gpiod_line_request(button_line, &req, 0) < 0) {
-    //     fprintf(stderr, "Nie udało się skonfigurować przycisku z pull-up!\n");
-    //     goto cleanup;
-    // }
     
-    printf("Morse LED + Decoder uruchomiony → chip: %s, LED: %u, przycisk: %u\n",
+    printf("Program uruchomiony -> chip: %s, LED: %u, BTN: %u\n",
            chipname, led_line_num, button_line_num);
 
-    print_morse_table();
-    
     printf("\n=== STEROWANIE ===\n");
     printf("Tryb nadawania: pisz tekst i naciśnij Enter\n");
-    printf("Ctrl+C          przełącz na tryb odbioru\n");
+    printf("Ctrl+C          przełączanie pomiędzy trybami odbioru/nadawania\n");
+    printf("Ctrl+\\          wyjśćie z aplikacji\n\n");
 
+    print_morse_table();
+  
     char line[256];
 
     while (running) {
         if (mode == LISTEN) {
-            printf("\n=== TRYB ODBIORU AKTYWNY (Ctrl+C aby wrócić) ===\n");
             decode_morse_input(button_line_num, chipname);
             mode = SEND;
             printf("\nPowrót do trybu nadawania.\n\n");
